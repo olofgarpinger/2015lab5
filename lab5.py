@@ -492,3 +492,183 @@ l,r=rows
 plot_functions_onall(clf, l, df, alphawechoose, xtrain, ytrain, Xtrain, xtest, ytest)
 plot_coefficients(clf, r, alphawechoose)
 
+
+
+# Classification
+
+import numpy as np
+import scipy as sp
+import matplotlib as mpl
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+import pandas as pd
+pd.set_option('display.width', 500)
+pd.set_option('display.max_columns', 100)
+pd.set_option('display.notebook_repr_html', True)
+import seaborn as sns
+sns.set_style("whitegrid")
+sns.set_context("poster")
+from PIL import Image
+
+c0=sns.color_palette()[0]
+c1=sns.color_palette()[1]
+c2=sns.color_palette()[2]
+
+from matplotlib.colors import ListedColormap
+cmap_light = ListedColormap(['#FFAAAA', '#AAFFAA', '#AAAAFF'])
+cmap_bold = ListedColormap(['#FF0000', '#00FF00', '#0000FF'])
+cm = plt.cm.RdBu
+cm_bright = ListedColormap(['#FF0000', '#0000FF'])
+
+def points_plot(ax, Xtr, Xte, ytr, yte, clf, mesh=True, colorscale=cmap_light, cdiscrete=cmap_bold, alpha=0.1, psize=10, zfunc=False, predicted=False):
+    h = .02
+    X=np.concatenate((Xtr, Xte))
+    x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
+    y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100),
+                         np.linspace(y_min, y_max, 100))
+
+    #plt.figure(figsize=(10,6))
+    if zfunc:
+        p0 = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 0]
+        p1 = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 1]
+        Z=zfunc(p0, p1)
+    else:
+        Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+    ZZ = Z.reshape(xx.shape)
+    if mesh:
+        plt.pcolormesh(xx, yy, ZZ, cmap=cmap_light, alpha=alpha, axes=ax)
+    if predicted:
+        showtr = clf.predict(Xtr)
+        showte = clf.predict(Xte)
+    else:
+        showtr = ytr
+        showte = yte
+    ax.scatter(Xtr[:, 0], Xtr[:, 1], c=showtr-1, cmap=cmap_bold, s=psize, alpha=alpha,edgecolor="k")
+    # and testing points
+    ax.scatter(Xte[:, 0], Xte[:, 1], c=showte-1, cmap=cmap_bold, alpha=alpha, marker="s", s=psize+10)
+    ax.set_xlim(xx.min(), xx.max())
+    ax.set_ylim(yy.min(), yy.max())
+    return ax,xx,yy
+
+def points_plot_prob(ax, Xtr, Xte, ytr, yte, clf, colorscale=cmap_light, cdiscrete=cmap_bold, ccolor=cm, psize=10, alpha=0.1):
+    ax,xx,yy = points_plot(ax, Xtr, Xte, ytr, yte, clf, mesh=False, colorscale=colorscale, cdiscrete=cdiscrete, psize=psize, alpha=alpha, predicted=True)
+    Z = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 1]
+    Z = Z.reshape(xx.shape)
+    plt.contourf(xx, yy, Z, cmap=ccolor, alpha=.2, axes=ax)
+    cs2 = plt.contour(xx, yy, Z, cmap=ccolor, alpha=.6, axes=ax)
+    plt.clabel(cs2, fmt = '%2.1f', colors = 'k', fontsize=14, axes=ax)
+    return ax
+
+dflog=pd.read_csv("data/01_heights_weights_genders.csv")
+dflog.head()
+
+plt.scatter(dflog.Weight*0.45359237, dflog.Height*2.54, c=[cm_bright.colors[i] for i in dflog.Gender=="Male"], alpha=0.08)
+
+from sklearn.cross_validation import KFold
+from sklearn.metrics import accuracy_score
+
+def cv_score(clf, x, y, score_func=accuracy_score):
+    result = 0
+    nfold = 5
+    for train, test in KFold(y.size, nfold): # split data into train/test groups, 5 times
+        clf.fit(x[train], y[train]) # fit
+        result += score_func(clf.predict(x[test]), y[test]) # evaluate score function on held-out data
+    return result / nfold # average
+
+from sklearn.cross_validation import train_test_split
+Xlr, Xtestlr, ylr, ytestlr = train_test_split(dflog[['Height','Weight']].values, (dflog.Gender=="Male").values)
+
+#the grid of parameters to search over
+Cs = [0.001, 0.1, 1, 10, 100]
+from sklearn.linear_model import LogisticRegression
+max_score = 0
+
+for C in Cs:
+        clf = LogisticRegression(C=C)
+        score = cv_score(clf, Xlr, ylr)
+
+        if score > max_score:
+            max_score = score
+            best_C =C
+print max_score, best_C
+
+clfl=LogisticRegression(C=best_C)
+clfl.fit(Xlr, ylr)
+ypred=clfl.predict(Xtestlr)
+accuracy_score(ypred, ytestlr)
+
+from sklearn.grid_search import GridSearchCV
+clfl2=LogisticRegression()
+parameters = {"C": [0.0001, 0.001, 0.1, 1, 10, 100]}
+fitmodel = GridSearchCV(clfl2, param_grid=parameters, cv=5, scoring="accuracy")
+fitmodel.fit(Xlr, ylr)
+fitmodel.best_estimator_, fitmodel.best_params_, fitmodel.best_score_, fitmodel.grid_scores_
+
+data=np.load("data/imag.pix.npy")
+y=np.load("data/imag.lbl.npy")
+STANDARD_SIZE = (322, 137)#standardized pixels in image.
+data.shape, y.shape
+
+def get_image(mat):
+    size = STANDARD_SIZE[0]*STANDARD_SIZE[1]*3
+    r,g,b = mat[0:size:3], mat[1:size:3],mat[2:size:3]
+    rgbArray = np.zeros((STANDARD_SIZE[1],STANDARD_SIZE[0], 3), 'uint8')#3 channels
+    rgbArray[..., 0] = r.reshape((STANDARD_SIZE[1], STANDARD_SIZE[0]))
+    rgbArray[..., 1] = b.reshape((STANDARD_SIZE[1], STANDARD_SIZE[0]))
+    rgbArray[..., 2] = g.reshape((STANDARD_SIZE[1], STANDARD_SIZE[0]))
+    return rgbArray
+
+def display_image(mat):
+    with sns.axes_style("white"):
+        plt.imshow(get_image(mat))
+        plt.xticks([])
+        plt.yticks([])
+
+display_image(data[5])
+display_image(data[50])
+
+from sklearn.decomposition import PCA
+pca = PCA(n_components=60)
+X = pca.fit_transform(data)
+
+print pca.explained_variance_ratio_.sum()
+
+pca.explained_variance_ratio_*100
+
+df = pd.DataFrame({"y":y, "label":np.where(y==1, "check", "dollar")})
+for i in range(pca.explained_variance_ratio_.shape[0]):
+    df["pc%i" % (i+1)] = X[:,i]
+df.head()
+
+def normit(a):
+    a=(a - a.min())/(a.max() -a.min())
+    a=a*256
+    return np.round(a)
+def getNC(pc, j):
+    size=322*137*3
+    r=pc.components_[j][0:size:3]
+    g=pc.components_[j][1:size:3]
+    b=pc.components_[j][2:size:3]
+    r=normit(r)
+    g=normit(g)
+    b=normit(b)
+    return r,g,b
+def display_component(pc, j):
+    r,g,b = getNC(pc,j)
+    rgbArray = np.zeros((137,322,3), 'uint8')
+    rgbArray[..., 0] = r.reshape(137,322)
+    rgbArray[..., 1] = g.reshape(137,322)
+    rgbArray[..., 2] = b.reshape(137,322)
+    plt.imshow(rgbArray)
+    plt.xticks([])
+    plt.yticks([])
+
+display_component(pca,0)
+display_component(pca,1)
+
+colors = [c0, c2]
+for label, color in zip(df['label'].unique(), colors):
+    mask = df['label']==label
+    plt.scatter(df[mask]['pc1'], df[mask]['pc2'], c=color, label=label)
+plt.legend()
