@@ -672,3 +672,101 @@ for label, color in zip(df['label'].unique(), colors):
     mask = df['label']==label
     plt.scatter(df[mask]['pc1'], df[mask]['pc2'], c=color, label=label)
 plt.legend()
+
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cross_validation import train_test_split
+ys=df['y'].astype(int).values
+subdf=df[["pc1", "pc2"]]
+subdfstd = (subdf-subdf.mean())/subdf.std()
+Xs = subdfstd.values
+def classify(X, y, nbrs, plotit = True, train_size = 0.6):
+    Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, train_size=train_size)
+    clf = KNeighborsClassifier(nbrs)
+    clf=clf.fit(Xtrain,ytrain)
+    training_accuracy = clf.score(Xtrain, ytrain)
+    test_accuracy = clf.score(Xtest, ytest)
+    Xall=np.concatenate((Xtrain, Xtest))
+    if plotit:
+        print "Accuracy on training data: %0.2f" % (training_accuracy)
+        print "Accuracy on test data:     %0.2f" % (test_accuracy)
+        plt.figure()
+        ax = plt.gca()
+        points_plot(ax, Xtrain, Xtest, ytrain, ytest, clf, alpha=0.3, psize=20)
+    return nbrs, training_accuracy, test_accuracy
+
+classify(Xs, ys, 1)
+classify(Xs, ys, 50)
+
+fits = {}
+for k in np.arange(1, 45, 1):
+    fits[k]=[]
+    for i in range(200):
+        fits[k].append(classify(Xs, ys, k, False))
+nbrs = np.arange(1, 45, 1)
+fmeanstr = np.array([1.-np.mean([t[1] for t in fits[e]]) for e in nbrs])
+fmeanste = np.array([1.-np.mean([t[2] for t in fits[e]]) for e in nbrs])
+fstdsstr = np.array([np.std([t[1] for t in fits[e]]) for e in nbrs])
+fstdsste = np.array([np.std([t[2] for t in fits[e]]) for e in nbrs])
+
+plt.gca().invert_xaxis()
+plt.plot(nbrs, fmeanstr, color=c0, label="training");
+plt.fill_between(nbrs, fmeanstr - fstdsstr, fmeanstr+fstdsstr, color=c0, alpha=0.3)
+plt.plot(nbrs, fmeanste, color=c1, label="testing");
+plt.fill_between(nbrs, fmeanste - fstdsste, fmeanste+fstdsste, color=c1, alpha=0.5)
+
+plt.legend();
+
+def cv_optimize(clf, parameters, Xtrain, ytrain, n_folds=5):
+    gs = GridSearchCV(clf, param_grid=parameters, cv=n_folds)
+    gs.fit(Xtrain, ytrain)
+    print "BEST PARAMS", gs.best_params_
+    best = gs.best_estimator_
+    return best
+
+from sklearn.cross_validation import train_test_split
+def do_classify(clf, parameters, indf, featurenames, targetname, target1val, standardize=False, train_size=0.8):
+    subdf=indf[featurenames]
+    if standardize:
+        subdfstd=(subdf - subdf.mean())/subdf.std()
+    else:
+        subdfstd=subdf
+    X=subdfstd.values
+    y=(indf[targetname].values==target1val)*1
+    Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, train_size=train_size)
+    clf = cv_optimize(clf, parameters, Xtrain, ytrain)
+    clf=clf.fit(Xtrain, ytrain)
+    training_accuracy = clf.score(Xtrain, ytrain)
+    test_accuracy = clf.score(Xtest, ytest)
+    print "Accuracy on training data: %0.2f" % (training_accuracy)
+    print "Accuracy on test data:     %0.2f" % (test_accuracy)
+    return clf, Xtrain, ytrain, Xtest, ytest
+
+bestcv, Xtrain, ytrain, Xtest, ytest = do_classify(KNeighborsClassifier(), {"n_neighbors": range(1,40,2)}, df, ['pc1','pc2'], 'label', 'check' )
+plt.figure()
+ax=plt.gca()
+points_plot(ax, Xtrain, Xtest, ytrain, ytest, bestcv, alpha=0.5, psize=20);
+
+plt.figure()
+ax=plt.gca()
+points_plot_prob(ax, Xtrain, Xtest, ytrain, ytest, bestcv, alpha=0.5, psize=20);
+
+from sklearn.metrics import confusion_matrix, classification_report
+confusion_matrix(ytest, bestcv.predict(Xtest), )
+
+h = lambda z: 1./(1+np.exp(-z))
+zs=np.arange(-5,5,0.1)
+plt.plot(zs, h(zs), alpha=0.5);
+
+dflog.head()
+
+clf_l, Xtrain_l, ytrain_l, Xtest_l, ytest_l  = do_classify(LogisticRegression(), {"C": [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 1, 10, 100]}, dflog, ['Weight', 'Height'], 'Gender','Male')
+
+plt.figure()
+ax=plt.gca()
+points_plot(ax, Xtrain_l, Xtest_l, ytrain_l, ytest_l, clf_l, alpha=0.2);
+
+clf_l.predict_proba(Xtest_l)
+
+plt.figure()
+ax=plt.gca()
+points_plot_prob(ax, Xtrain_l, Xtest_l, ytrain_l, ytest_l, clf_l, psize=20, alpha=0.1);
